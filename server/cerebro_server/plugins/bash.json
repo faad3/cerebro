@@ -1,0 +1,11 @@
+{
+  "id": "bash",
+  "label": "Bash",
+  "icon": "$",
+  "color": "#5fafff",
+  "command": "bash",
+  "options": [
+    {"key": "name", "type": "string", "label": "name", "optional": true},
+    {"key": "cwd", "type": "path", "label": "working directory", "default": "~"}
+  ]
+}

@@ -1,0 +1,29 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  cerebro-server:
+    build: ./server
+    restart: unless-stopped
+    ports:
+      - "${CEREBRO_PORT:-8000}:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CEREBRO_TOKEN=${CEREBRO_TOKEN:?CEREBRO_TOKEN must be set in .env}
+      - CEREBRO_LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - HOME=/root
+    volumes:
+      - ${HOME}/.claude:/home/cerebro/.claude
+      - ${HOME}/.claude.json:/mnt/host-claude-config.json:ro
+      # Persistent storage for agent backups (survives Redis data loss).
+      - cerebro_data:/data
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:
+  cerebro_data:

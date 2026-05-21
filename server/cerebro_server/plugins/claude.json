@@ -1,0 +1,18 @@
+{
+  "id": "claude",
+  "label": "Claude Code",
+  "icon": "🧠",
+  "color": "#00ff88",
+  "command": "claude",
+  "args": [
+    "--session-id={session_id}",
+    {"if": "skip_perms", "then": "--dangerously-skip-permissions"}
+  ],
+  "options": [
+    {"key": "name", "type": "string", "label": "name", "optional": true},
+    {"key": "cwd", "type": "path", "label": "working directory", "default": "~"},
+    {"key": "skip_perms", "type": "bool", "label": "skip permissions", "default": true}
+  ],
+  "auto_fields": {"session_id": "uuid"},
+  "behaviors": ["resumable", "claude_jsonl_stats", "dashboard_visible"]
+}

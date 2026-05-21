@@ -1,0 +1,8 @@
+{
+  "id": "htop",
+  "label": "htop",
+  "icon": "📊",
+  "color": "#ffb454",
+  "command": "htop",
+  "options": []
+}

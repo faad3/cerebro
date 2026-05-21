@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cerebro</title>
+    <link rel="icon" type="image/png" href="/static/logo.png" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css"
+    />
+    <link rel="stylesheet" href="/static/style.css?v=25" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand" id="brand"><img src="/static/logo.png" class="brand-logo" alt="" />cerebro</div>
+      <nav class="topnav">
+        <a class="topnav-link" data-route="#/">nodes</a>
+        <a class="topnav-link" data-route="#/agents">sessions</a>
+        <a class="topnav-link" data-route="#/dashboard">conductor</a>
+      </nav>
+      <div id="crumbs" class="crumbs"></div>
+      <div class="spacer"></div>
+      <button id="logout" class="ghost">logout</button>
+    </header>
+
+    <main id="view"></main>
+
+    <template id="tpl-nodes">
+      <section class="screen">
+        <div class="screen-header">
+          <h2>nodes</h2>
+          <button id="refresh-nodes" class="ghost">refresh</button>
+        </div>
+        <div id="node-grid" class="grid"></div>
+        <p id="nodes-empty" class="empty hidden">
+          no nodes online — start one with
+          <code>cerebro-node start --master http://&lt;host&gt;:8000 --token &lt;token&gt;</code>
+        </p>
+      </section>
+    </template>
+
+    <!-- Master-detail: window sidebar (Arc-like) + terminal pane -->
+    <template id="tpl-agents-detail">
+      <section class="screen master-detail">
+        <div class="sidebar" id="sidebar">
+          <div class="sidebar-top">
+            <div class="view-toggle" id="view-toggle">
+              <button class="view-toggle-btn active" data-mode="all">all</button>
+              <button class="view-toggle-btn" data-mode="by-node">by node</button>
+            </div>
+            <span id="sidebar-total" class="dash-total"></span>
+          </div>
+          <div id="sidebar-favorites" class="sidebar-favorites" data-drop-zone="favorites"></div>
+          <div id="sidebar-list" class="sidebar-list"></div>
+          <div class="sidebar-fab">
+            <button id="create-btn" class="fab-btn" title="new session">+</button>
+          </div>
+        </div>
+        <div class="detail" id="detail">
+          <div id="detail-empty" class="detail-empty">
+            <p>select a session from the list<br/>or create a new one</p>
+          </div>
+          <div id="detail-agent" class="detail-agent hidden">
+            <div id="agent-panels" class="agent-panels"></div>
+          </div>
+        </div>
+      </section>
+    </template>
+
+    <template id="tpl-dashboard">
+      <section class="screen agent-screen">
+        <div class="dashboard-split">
+          <div class="dash-left">
+            <div class="pane-header"><span class="kind-tag claude">orchestrator</span></div>
+            <div class="pane-term" id="term-orchestrator"></div>
+          </div>
+          <div class="dash-right" id="dash-cards">
+            <div class="dash-cards-header">
+              <strong>sessions</strong>
+              <span id="dash-total" class="dash-total"></span>
+            </div>
+            <div id="dash-agent-list" class="dash-agent-list"></div>
+          </div>
+        </div>
+      </section>
+    </template>
+
+    <!-- Modal: plugin picker (grid of available plugins) -->
+    <div id="picker-overlay" class="modal-overlay hidden">
+      <div class="picker-modal">
+        <div class="custom-modal-header">new session <button id="picker-close" class="ghost-x">×</button></div>
+        <div id="picker-grid" class="picker-grid"></div>
+      </div>
+    </div>
+
+    <!-- Modal: plugin options (dynamically built from manifest) -->
+    <div id="options-overlay" class="modal-overlay hidden">
+      <div class="custom-modal">
+        <div class="custom-modal-header">
+          <span id="options-title">configure</span>
+          <button id="options-back" class="ghost-x" title="back">←</button>
+          <button id="options-close" class="ghost-x" title="close">×</button>
+        </div>
+        <div class="custom-field">
+          <label>node</label>
+          <div id="opt-node-picker" class="node-picker"></div>
+          <input type="hidden" id="opt-node" />
+        </div>
+        <div id="opt-fields"></div>
+        <button id="opt-create" class="primary" style="width:100%;margin-top:12px;padding:10px">create</button>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="/static/app.js?v=27"></script>
+  </body>
+</html>
