@@ -45,7 +45,7 @@ function showLoginScreen(reason) {
   sec.innerHTML = `
     <div class="login-card">
       <h2>cerebro</h2>
-      <p class="login-hint">paste the CEREBRO_TOKEN from your master server's <code>.env</code></p>
+      <p class="login-hint">paste the master's token — retrieve with <code>docker compose exec cerebro-server cerebro-server token</code></p>
       <form id="login-form" autocomplete="off">
         <input id="token-input" type="password" placeholder="token" autocomplete="current-password" />
         <button type="submit" class="primary">login</button>

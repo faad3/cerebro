@@ -12,8 +12,10 @@ services:
     ports:
       - "${CEREBRO_PORT:-8000}:8000"
     environment:
+      # Optional — leave empty and the master auto-generates one into /data/token on first boot.
+      # Retrieve any time with: docker compose exec cerebro-server cerebro-server token
+      - CEREBRO_TOKEN=${CEREBRO_TOKEN:-}
       - REDIS_URL=redis://redis:6379
-      - CEREBRO_TOKEN=${CEREBRO_TOKEN:?CEREBRO_TOKEN must be set in .env}
       - CEREBRO_LOG_LEVEL=${LOG_LEVEL:-INFO}
       - HOME=/root
     volumes:

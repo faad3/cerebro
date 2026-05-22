@@ -30,20 +30,24 @@ You need:
 ```bash
 git clone https://github.com/faad3/cerebro.git
 cd cerebro
-cp .env.example .env
-# open .env, set CEREBRO_TOKEN to any secret string (it's your password)
 docker compose up -d
 ```
 
-The web UI is now at `http://localhost:8000`. Paste the token to log in.
+The master auto-generates a bearer token on first boot. Grab it:
+
+```bash
+docker compose exec cerebro-server cerebro-server token
+```
+
+Web UI is at `http://localhost:8000`. Paste that token to log in.
 
 ### 2. Add a node
 
-On each machine you want to spawn shells on (including the master if you want):
+On each machine you want to spawn shells on (the master itself counts):
 
 ```bash
 pip install --user git+https://github.com/faad3/cerebro.git#subdirectory=client
-cerebro start --master http://<master-host>:8000 --token <your-token>
+cerebro start --master http://<master-host>:8000 --token <token-from-step-1>
 ```
 
 Refresh the UI — the new machine shows up under "nodes".
