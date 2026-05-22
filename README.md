@@ -80,12 +80,13 @@ CEREBRO_ALLOWED_ORIGINS=https://cerebro.example.com
 ```
 
 What you get out of the box once behind TLS:
-- Token never appears in URLs — the browser logs in with `POST /api/login` and gets an httpOnly `Secure SameSite=Strict` cookie.
-- Constant-time token comparison and 5-fail/minute brute-force throttle on `/api/login`.
+- **Touch ID / Windows Hello / passkey login.** After the first master-token login, the UI offers to register the device's biometric authenticator. Subsequent visits: one fingerprint tap, no token typing. Manage registered devices with `cerebro-server devices` / `revoke-device`.
+- Token never appears in URLs — the browser logs in with `POST /api/login` (master token or passkey), session cookie is httpOnly `Secure SameSite=Strict`.
+- Constant-time token comparison and 5-fail/minute brute-force throttle on both login paths.
 - WebSocket upgrades validate `Origin` against the allowlist.
-- Every session create / delete / resume is written as a JSON line to `/data/audit.log`.
+- Every session create / delete / resume / passkey event is written as a JSON line to `/data/audit.log`.
 
-Threat-model caveat: there's still **one shared token across all users**. A leaked token = RCE on every node. Don't share Cerebro with people you wouldn't share root with. See [DEVELOPMENT.md → Security](DEVELOPMENT.md#security) for the longer story.
+Threat-model caveat: there's still **one shared master token across all users** (passkeys are per-device but they all unlock the same "root" account). A leaked master token = RCE on every node. Don't share Cerebro with people you wouldn't share root with. See [DEVELOPMENT.md → Security](DEVELOPMENT.md#security) for the longer story.
 
 ## Roadmap
 

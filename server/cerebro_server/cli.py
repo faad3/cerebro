@@ -144,6 +144,44 @@ def token(
     typer.echo(val)
 
 
+@app.command(name="devices")
+def devices_cmd():
+    """List registered passkey devices."""
+    from . import passkeys
+    if not passkeys.HAS_FIDO2:
+        typer.secho("fido2 library not installed", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    rows = passkeys.list_devices()
+    if not rows:
+        typer.echo("(no passkeys registered — log in with the master token to add one)")
+        return
+    typer.echo(f"{'id':<14} {'label':<14} {'last_used':<20}")
+    for d in rows:
+        last = "—" if not d.get("last_used") else _ts(d["last_used"])
+        typer.echo(f"{d['id'][:12]:<14} {(d.get('label') or '-'):<14} {last:<20}")
+
+
+@app.command(name="revoke-device")
+def revoke_device_cmd(cid_prefix: str = typer.Argument(..., help="Credential id prefix (first ~12 chars are enough)")):
+    """Remove a passkey by id prefix."""
+    from . import passkeys
+    rows = passkeys.list_devices()
+    matches = [d for d in rows if d["id"].startswith(cid_prefix)]
+    if not matches:
+        typer.secho(f"no passkey matches id prefix {cid_prefix!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    if len(matches) > 1:
+        typer.secho(f"ambiguous prefix — {len(matches)} matches; use more characters", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    passkeys.remove(matches[0]["id"])
+    typer.echo(f"revoked: {matches[0]['id']} ({matches[0].get('label')})")
+
+
+def _ts(epoch: float) -> str:
+    import datetime
+    return datetime.datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M")
+
+
 @app.command()
 def config():
     """Print config file path and contents."""

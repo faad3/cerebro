@@ -236,11 +236,19 @@ Manual procedure (until commands ship) is documented in the chat log; in short: 
 
 **What's in the box.**
 - `POST /api/login {token}` → httpOnly `Secure SameSite=Strict` cookie. Browser auth uses the cookie, not `localStorage`; the token never appears in WS URLs.
+- **WebAuthn / passkey login**: `/api/passkey/register/*` (auth required) + `/api/passkey/login/*` (no auth, signature is the auth). Credentials stored in `/data/passkeys.json` as one row per device (id, full attested-credential-data blob, label, timestamps). Login mints the same session cookie as the master-token path.
 - `Authorization: Bearer` is still accepted everywhere — nodes, `cerebro-ctl`, CI clients work unchanged.
 - Constant-time token comparison (`hmac.compare_digest`).
-- Per-IP login rate limit: 5 fails / 60s → 429. In-memory; resets on master restart.
+- Per-IP login rate limit: 5 fails / 60s → 429 (shared between master-token and passkey login paths). In-memory; resets on master restart.
 - Optional `CEREBRO_ALLOWED_ORIGINS` env (comma-separated). When set, WS upgrades from other Origins are dropped. Leave unset on a trusted LAN.
-- Append-only audit log at `/data/audit.log` (JSON lines): every agent create / delete / resume with `ts, action, ip, ua, agent_id, plugin_id, node_id, name`.
+- Append-only audit log at `/data/audit.log` (JSON lines): every agent create / delete / resume + passkey register / login / revoke with `ts, action, ip, ua, agent_id, plugin_id, node_id, name, credential_id`.
+
+**Passkey flow.**
+1. First visit: login with master token (paste). Toast offers "🔐 add Touch ID for next time?" → click → browser prompts platform authenticator → credential stored server-side.
+2. Subsequent visits: "🔓 unlock with Touch ID" button on the login screen. One tap → cookie set.
+3. CLI: `cerebro-server devices` (list), `cerebro-server revoke-device <id-prefix>` (remove).
+4. `CEREBRO_RP_ID` env overrides the auto-detected hostname for the WebAuthn relying-party id (only needed when the public hostname differs from the upstream `Host` header).
+5. WebAuthn requires HTTPS in browsers (localhost exception applies for dev). Run behind Caddy/nginx for production.
 
 **What's NOT in the box (and needs to be).**
 - TLS — terminate at a reverse proxy. See [`deploy/Caddyfile.example`](deploy/Caddyfile.example).

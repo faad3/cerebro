@@ -42,30 +42,69 @@ function highlightTopnav() {
   }
 }
 
-function showLoginScreen(reason) {
+async function showLoginScreen(reason) {
   teardownView();
   setCrumbs([{ label: "login" }]);
   const view = document.getElementById("view");
   view.innerHTML = "";
   const sec = document.createElement("section");
   sec.className = "screen login-screen";
+  view.appendChild(sec);
+
+  // Check whether passkeys are registered (decides whether to show Touch ID button).
+  let pk = { enabled: false, has_credentials: false };
+  try {
+    pk = await fetch("/api/passkey/status", { credentials: "same-origin" }).then(r => r.json());
+  } catch (_) {}
+
   sec.innerHTML = `
     <div class="login-card">
       <h2>cerebro</h2>
-      <p class="login-hint">paste the master's token — retrieve with <code>docker compose exec cerebro-server cerebro-server token</code></p>
+      ${pk.has_credentials ? `
+        <button id="passkey-login" class="primary big-btn">${touchIdAvailable() ? "🔓 unlock with Touch ID" : "🔓 unlock with passkey"}</button>
+        <p class="login-hint or-divider">or paste the master token</p>
+      ` : `
+        <p class="login-hint">paste the master's token — retrieve with <code>docker compose exec cerebro-server cerebro-server token</code></p>
+      `}
       <form id="login-form" autocomplete="off">
         <input id="token-input" type="password" placeholder="token" autocomplete="current-password" />
-        <button type="submit" class="primary">login</button>
+        <button type="submit" class="${pk.has_credentials ? 'ghost' : 'primary'}">login with token</button>
       </form>
       <p id="login-error" class="login-error hidden"></p>
     </div>
   `;
-  view.appendChild(sec);
+
   const form = document.getElementById("login-form");
   const input = document.getElementById("token-input");
   const errEl = document.getElementById("login-error");
   if (reason) { errEl.textContent = reason; errEl.classList.remove("hidden"); }
-  setTimeout(() => input.focus(), 0);
+
+  // Passkey button.
+  const pkBtn = document.getElementById("passkey-login");
+  if (pkBtn) {
+    pkBtn.addEventListener("click", async () => {
+      errEl.classList.add("hidden");
+      pkBtn.disabled = true;
+      try {
+        await loginWithPasskey();
+        localStorage.setItem(AUTHED_FLAG, "1");
+        sessionStorage.setItem(AUTHED_FLAG, "1");
+        authBlocked = false;
+        navigate("#/agents"); render();
+      } catch (err) {
+        errEl.textContent = "passkey failed: " + (err.message || err);
+        errEl.classList.remove("hidden");
+      } finally {
+        pkBtn.disabled = false;
+      }
+    });
+    // Auto-focus the passkey button so Enter triggers Touch ID.
+    setTimeout(() => { if (document.body.contains(pkBtn)) pkBtn.focus(); }, 0);
+  } else {
+    setTimeout(() => { if (document.body.contains(input)) input.focus(); }, 0);
+  }
+
+  if (!form) return;
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const t = input.value.trim();
@@ -90,10 +129,128 @@ function showLoginScreen(reason) {
       sessionStorage.setItem(AUTHED_FLAG, "1");
       authBlocked = false;
       requestNotifPermission();
+      // If no passkey registered yet, offer to add one once we're inside.
+      if (!pk.has_credentials && pk.enabled && webauthnSupported()) {
+        offerPasskeyRegistration();
+      }
       navigate("#/agents");
       render();
     } catch (err) { errEl.textContent = "network error: " + err.message; errEl.classList.remove("hidden"); }
   });
+}
+
+// ===========================================================================
+// WebAuthn / passkey helpers
+// ===========================================================================
+
+function webauthnSupported() {
+  return typeof window.PublicKeyCredential !== "undefined";
+}
+
+function touchIdAvailable() {
+  // Heuristic — Mac/iOS Safari, modern Chrome on Mac have Touch ID / platform authenticator.
+  const ua = navigator.userAgent || "";
+  return /Mac|iPhone|iPad/.test(ua);
+}
+
+// base64url ↔ ArrayBuffer
+function b64uToBuf(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = "=".repeat((4 - s.length % 4) % 4);
+  const bin = atob(s + pad);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+function bufToB64u(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Convert server-sent options (with base64url strings for byte fields) to native ArrayBuffers.
+function decodeCreationOptions(opts) {
+  const o = JSON.parse(JSON.stringify(opts));  // deep copy
+  if (o.challenge) o.challenge = b64uToBuf(o.challenge);
+  if (o.user && o.user.id) o.user.id = b64uToBuf(o.user.id);
+  if (Array.isArray(o.excludeCredentials)) {
+    o.excludeCredentials = o.excludeCredentials.map(c => ({ ...c, id: b64uToBuf(c.id) }));
+  }
+  return o;
+}
+function decodeRequestOptions(opts) {
+  const o = JSON.parse(JSON.stringify(opts));
+  if (o.challenge) o.challenge = b64uToBuf(o.challenge);
+  if (Array.isArray(o.allowCredentials)) {
+    o.allowCredentials = o.allowCredentials.map(c => ({ ...c, id: b64uToBuf(c.id) }));
+  }
+  return o;
+}
+
+function credToJSON(cred) {
+  const out = {
+    id: cred.id,
+    rawId: bufToB64u(cred.rawId),
+    type: cred.type,
+    response: {},
+  };
+  const r = cred.response;
+  if (r.clientDataJSON) out.response.clientDataJSON = bufToB64u(r.clientDataJSON);
+  if (r.attestationObject) out.response.attestationObject = bufToB64u(r.attestationObject);
+  if (r.authenticatorData) out.response.authenticatorData = bufToB64u(r.authenticatorData);
+  if (r.signature) out.response.signature = bufToB64u(r.signature);
+  if (r.userHandle) out.response.userHandle = bufToB64u(r.userHandle);
+  return out;
+}
+
+async function loginWithPasskey() {
+  if (!webauthnSupported()) throw new Error("WebAuthn not supported in this browser");
+  const begin = await fetch("/api/passkey/login/begin", { method: "POST", credentials: "same-origin" });
+  if (!begin.ok) throw new Error(`begin: ${begin.status}`);
+  const { ticket, options } = await begin.json();
+  const cred = await navigator.credentials.get({ publicKey: decodeRequestOptions(options.publicKey || options) });
+  if (!cred) throw new Error("user cancelled");
+  const complete = await fetch("/api/passkey/login/complete", {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticket, response: credToJSON(cred) }),
+  });
+  if (!complete.ok) {
+    const body = await complete.json().catch(() => ({}));
+    throw new Error(body.detail || `complete: ${complete.status}`);
+  }
+}
+
+async function registerPasskey(label) {
+  if (!webauthnSupported()) throw new Error("WebAuthn not supported in this browser");
+  const begin = await api("POST", "/api/passkey/register/begin", { label });
+  const cred = await navigator.credentials.create({ publicKey: decodeCreationOptions(begin.options.publicKey || begin.options) });
+  if (!cred) throw new Error("user cancelled");
+  return await api("POST", "/api/passkey/register/complete", {
+    ticket: begin.ticket,
+    response: credToJSON(cred),
+  });
+}
+
+function offerPasskeyRegistration() {
+  // Non-blocking toast → click → register.
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.style.cursor = "pointer";
+  el.innerHTML = `🔐 add Touch ID for next time? <button class="primary" style="margin-left:8px">add</button>`;
+  el.querySelector("button").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    el.remove();
+    try {
+      await registerPasskey(null);
+      toast("passkey registered — next login uses Touch ID");
+    } catch (err) {
+      toast("passkey registration failed: " + (err.message || err), "error");
+    }
+  });
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 12000);
 }
 
 async function api(method, path, body) {
