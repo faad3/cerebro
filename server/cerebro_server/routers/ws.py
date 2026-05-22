@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
-from ..auth import check_token
+from ..auth import ws_authorize
 from ..hub import hub
 from ..orchestrator_manager import orchestrator
 from ..protocol import pack, unpack
@@ -33,7 +33,7 @@ def get_registry() -> Registry:
 async def node_socket(
     ws: WebSocket, node_id: str, token: Optional[str] = Query(default=None)
 ):
-    if not check_token(token):
+    if not await ws_authorize(ws, token):
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -183,7 +183,7 @@ async def _handle_terminal_dead(reg: Registry, terminal_id: str, payload: dict) 
 async def terminal_socket(
     ws: WebSocket, terminal_id: str, token: Optional[str] = Query(default=None)
 ):
-    if not check_token(token):
+    if not await ws_authorize(ws, token):
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -261,7 +261,7 @@ async def terminal_socket(
 async def orchestrator_socket(
     ws: WebSocket, token: Optional[str] = Query(default=None)
 ):
-    if not check_token(token):
+    if not await ws_authorize(ws, token):
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

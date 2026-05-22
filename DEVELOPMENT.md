@@ -230,6 +230,31 @@ Why this works: sessions are PTYs on the node side; they only need a fresh WS to
 
 Manual procedure (until commands ship) is documented in the chat log; in short: tar-copy the `redis_data` + `cerebro_data` Docker volumes, `.env`, point nodes at the new host.
 
+## Security
+
+**Threat model.** Single shared bearer token. One trust level: anyone with the token can spawn any session on any node, which is full RCE on every node. There is no concept of users or scoped permissions.
+
+**What's in the box.**
+- `POST /api/login {token}` → httpOnly `Secure SameSite=Strict` cookie. Browser auth uses the cookie, not `localStorage`; the token never appears in WS URLs.
+- `Authorization: Bearer` is still accepted everywhere — nodes, `cerebro-ctl`, CI clients work unchanged.
+- Constant-time token comparison (`hmac.compare_digest`).
+- Per-IP login rate limit: 5 fails / 60s → 429. In-memory; resets on master restart.
+- Optional `CEREBRO_ALLOWED_ORIGINS` env (comma-separated). When set, WS upgrades from other Origins are dropped. Leave unset on a trusted LAN.
+- Append-only audit log at `/data/audit.log` (JSON lines): every agent create / delete / resume with `ts, action, ip, ua, agent_id, plugin_id, node_id, name`.
+
+**What's NOT in the box (and needs to be).**
+- TLS — terminate at a reverse proxy. See [`deploy/Caddyfile.example`](deploy/Caddyfile.example).
+- Per-user identity, per-plugin scopes — out of scope for the current model.
+- Plugin manifest signing — `/data/plugins/*.json` is trusted; treat write access to that directory as equivalent to root.
+- Sandboxing of spawned processes — they inherit the node user's full FS + network.
+- Audit log rotation — `/data/audit.log` grows forever. Wrap with `logrotate` or symlink to a syslog source.
+
+**Operational recommendations for public exposure.**
+- Always front with TLS. The cookie is set `Secure` based on `X-Forwarded-Proto`; if that header isn't `https`, the cookie won't survive a same-site reload on iOS Safari.
+- Set `CEREBRO_ALLOWED_ORIGINS` to your one canonical hostname.
+- Rotate the token (`cerebro-server token --rotate`) after any incident. Then restart master and re-point nodes (`cerebro start --token <new>` on each).
+- Don't share the URL with people you wouldn't share `sudo` with.
+
 ## Conventions
 
 - **Naming**: UI says "session", code says `agent_id`. Don't rename the API field — too much churn for too little win.

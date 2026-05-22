@@ -13,8 +13,9 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from .. import audit
 from ..auth import require_bearer
 from ..hub import hub
 from pydantic import BaseModel as _BaseModel
@@ -84,7 +85,7 @@ async def _spawn_terminal(
 
 
 @router.post("", dependencies=[Depends(require_bearer)])
-async def create_agent(body: CreateAgentRequest) -> AgentInfo:
+async def create_agent(body: CreateAgentRequest, request: Request) -> AgentInfo:
     reg = get_registry()
     if await reg.get_node(body.node_id) is None:
         raise HTTPException(status_code=404, detail="node not found")
@@ -169,6 +170,15 @@ async def create_agent(body: CreateAgentRequest) -> AgentInfo:
     assert info is not None
     info.claude_terminal_id = term.terminal_id
     await reg.update_agent(info)
+    audit.log(
+        "agent.create",
+        request,
+        agent_id=agent_id,
+        plugin_id=plugin_id,
+        node_id=body.node_id,
+        name=name,
+        cwd=cwd,
+    )
     return info
 
 
@@ -246,7 +256,7 @@ async def update_agent(agent_id: str, body: dict) -> AgentInfo:
 
 
 @router.delete("/{agent_id}", dependencies=[Depends(require_bearer)])
-async def delete_agent(agent_id: str) -> dict:
+async def delete_agent(agent_id: str, request: Request) -> dict:
     reg = get_registry()
     info = await reg.get_agent(agent_id)
     if info is None:
@@ -269,12 +279,21 @@ async def delete_agent(agent_id: str) -> dict:
         peers = [a for a in await reg.list_agents() if a.folder_id == folder_id]
         if not peers:
             await reg.delete_folder(folder_id)
+    audit.log(
+        "agent.delete",
+        request,
+        agent_id=agent_id,
+        plugin_id=info.plugin_id,
+        node_id=info.node_id,
+        name=info.name,
+    )
     return {"ok": True}
 
 
 @router.post("/{agent_id}/resume", dependencies=[Depends(require_bearer)])
 async def resume_agent(
     agent_id: str,
+    request: Request,
     cols: int = Query(default=120),
     rows: int = Query(default=40),
 ) -> AgentInfo:
@@ -318,6 +337,15 @@ async def resume_agent(
     info.claude_terminal_id = claude_term.terminal_id
     info.status = "running"
     await reg.update_agent(info)
+    audit.log(
+        "agent.resume",
+        request,
+        agent_id=agent_id,
+        plugin_id=info.plugin_id,
+        node_id=info.node_id,
+        name=info.name,
+        session_id=info.claude_session_id,
+    )
     return info
 
 

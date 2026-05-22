@@ -1,20 +1,27 @@
 "use strict";
 
 // ===========================================================================
-// Token + login
+// Auth (cookie-based; httpOnly cookie set by POST /api/login)
 // ===========================================================================
 
-const TOKEN_KEY = "cerebro.token";
+const LEGACY_TOKEN_KEY = "cerebro.token";  // migration only — never written again
+const AUTHED_FLAG = "cerebro.authed";       // local "we have a valid cookie" hint
 
 let authBlocked = false;
 
-function getStoredToken() {
-  return localStorage.getItem(TOKEN_KEY) || "";
+function isLikelyAuthed() {
+  // Cookie is httpOnly so JS can't read it. We track a non-secret "we logged in
+  // successfully at least once" hint in localStorage; the real check is whether
+  // /api/* returns 401.
+  return sessionStorage.getItem(AUTHED_FLAG) === "1" || localStorage.getItem(AUTHED_FLAG) === "1";
 }
 
-function clearToken() {
+async function clearToken() {
   authBlocked = false;
-  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(AUTHED_FLAG);
+  localStorage.removeItem(AUTHED_FLAG);
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+  try { await fetch("/api/logout", { method: "POST", credentials: "same-origin" }); } catch (_) {}
   location.reload();
 }
 
@@ -65,10 +72,22 @@ function showLoginScreen(reason) {
     if (!t) return;
     errEl.classList.add("hidden");
     try {
-      const res = await fetch("/api/nodes", { headers: { Authorization: "Bearer " + t } });
+      const res = await fetch("/api/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: t }),
+      });
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({}));
+        errEl.textContent = body.detail || "too many failed attempts; wait a minute";
+        errEl.classList.remove("hidden");
+        return;
+      }
       if (res.status === 401) { errEl.textContent = "token rejected"; errEl.classList.remove("hidden"); input.select(); return; }
       if (!res.ok) { errEl.textContent = res.status + " " + res.statusText; errEl.classList.remove("hidden"); return; }
-      localStorage.setItem(TOKEN_KEY, t);
+      localStorage.setItem(AUTHED_FLAG, "1");
+      sessionStorage.setItem(AUTHED_FLAG, "1");
       authBlocked = false;
       requestNotifPermission();
       navigate("#/agents");
@@ -79,12 +98,16 @@ function showLoginScreen(reason) {
 
 async function api(method, path, body) {
   if (authBlocked) throw new Error("auth blocked");
-  const token = getStoredToken();
-  if (!token) { authBlocked = true; showLoginScreen(); throw new Error("no token"); }
-  const opts = { method, headers: { Authorization: "Bearer " + token } };
+  const opts = { method, credentials: "same-origin", headers: {} };
   if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
   const res = await fetch(path, opts);
-  if (res.status === 401) { authBlocked = true; localStorage.removeItem(TOKEN_KEY); showLoginScreen("token rejected"); throw new Error("unauthorized"); }
+  if (res.status === 401) {
+    authBlocked = true;
+    localStorage.removeItem(AUTHED_FLAG);
+    sessionStorage.removeItem(AUTHED_FLAG);
+    showLoginScreen("session expired — log in again");
+    throw new Error("unauthorized");
+  }
   if (!res.ok) { let d = res.statusText; try { const j = await res.json(); if (j.detail) d = j.detail; } catch (_) {} throw new Error(d); }
   if (res.status === 204) return null;
   return res.json();
@@ -270,7 +293,7 @@ let _agentsLastSelected = null;  // which agent was active when we last left the
 
 async function render() {
   highlightTopnav();
-  if (authBlocked || !getStoredToken()) { teardownView(); showLoginScreen(); return; }
+  if (authBlocked || !isLikelyAuthed()) { teardownView(); showLoginScreen(); return; }
 
   const h = location.hash || "#/agents";
   const route =
@@ -1157,7 +1180,8 @@ function mountTerminal(containerEl, terminalId, wsUrlOverride) {
   requestAnimationFrame(() => { try { fit.fit(); } catch (_) {} });
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = wsUrlOverride || `${proto}//${location.host}/ws/terminal/${terminalId}?token=${encodeURIComponent(getStoredToken())}`;
+  // Browser WS: cookie auth is automatic (httpOnly cookie sent on upgrade).
+  const url = wsUrlOverride || `${proto}//${location.host}/ws/terminal/${terminalId}`;
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   let opened = false, closedByUs = false, onDead = null;
@@ -1190,7 +1214,7 @@ async function renderDashboard() {
 
   const orchContainer = document.getElementById("term-orchestrator");
   const orchProto = location.protocol === "https:" ? "wss:" : "ws:";
-  const orchTerm = mountTerminal(orchContainer, null, `${orchProto}//${location.host}/ws/orchestrator?token=${encodeURIComponent(getStoredToken())}`);
+  const orchTerm = mountTerminal(orchContainer, null, `${orchProto}//${location.host}/ws/orchestrator`);
 
   const cardList = document.getElementById("dash-agent-list");
   const totalEl = document.getElementById("dash-total");

@@ -69,6 +69,24 @@ Click the green **+** at the bottom-right → pick a plugin (Claude / Bash / hto
 
 ---
 
+## Public deployment
+
+Run Cerebro behind a TLS-terminating reverse proxy. A working Caddy config is in [`deploy/Caddyfile.example`](deploy/Caddyfile.example) — point a hostname at your master, drop the file in `/etc/caddy/`, and you get HTTPS with auto-renewed certs.
+
+Set this env var on the master so browser WS upgrades from random origins are refused:
+
+```bash
+CEREBRO_ALLOWED_ORIGINS=https://cerebro.example.com
+```
+
+What you get out of the box once behind TLS:
+- Token never appears in URLs — the browser logs in with `POST /api/login` and gets an httpOnly `Secure SameSite=Strict` cookie.
+- Constant-time token comparison and 5-fail/minute brute-force throttle on `/api/login`.
+- WebSocket upgrades validate `Origin` against the allowlist.
+- Every session create / delete / resume is written as a JSON line to `/data/audit.log`.
+
+Threat-model caveat: there's still **one shared token across all users**. A leaked token = RCE on every node. Don't share Cerebro with people you wouldn't share root with. See [DEVELOPMENT.md → Security](DEVELOPMENT.md#security) for the longer story.
+
 ## Roadmap
 
 - One-command master migration: `cerebro-server export` / `cerebro-server import` to move the brain to a new server without losing any session.

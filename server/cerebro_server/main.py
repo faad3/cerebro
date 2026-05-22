@@ -55,8 +55,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Cerebro", version="0.2.0", lifespan=lifespan)
 
 # Routers loaded after registry is bound so they can import it lazily.
+from .auth import install_login_routes  # noqa: E402
 from .routers import agents, folders, nodes, plugins, ws  # noqa: E402
 
+install_login_routes(app)
 app.include_router(nodes.router)
 app.include_router(agents.router)
 app.include_router(plugins.router)

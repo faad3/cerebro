@@ -1,0 +1,36 @@
+# Caddy reverse proxy for a public Cerebro deployment.
+#
+# Caddy auto-provisions a Let's Encrypt cert for the hostname and forwards both
+# HTTP and WebSocket traffic to the master container on port 8000. Cerebro
+# treats X-Forwarded-Proto=https as authoritative, so the session cookie will
+# be issued with the Secure flag.
+#
+# Save as /etc/caddy/Caddyfile (or include from your existing one), then:
+#   sudo systemctl reload caddy
+#
+# Don't forget to also restart cerebro-server with:
+#   CEREBRO_ALLOWED_ORIGINS=https://cerebro.example.com
+# (the browser WS upgrade is refused if Origin isn't in the allowlist).
+
+cerebro.example.com {
+    # TLS via Let's Encrypt by default — no further config needed.
+    encode gzip
+
+    # Sensible defaults for a single-user deployment behind one proxy.
+    @ws {
+        header Connection *Upgrade*
+        header Upgrade    websocket
+    }
+
+    reverse_proxy @ws 127.0.0.1:8000 {
+        # WS upgrades need long-lived connections.
+        transport http {
+            keepalive 60s
+            keepalive_idle_conns 100
+        }
+    }
+
+    reverse_proxy 127.0.0.1:8000 {
+        header_up X-Forwarded-Proto https
+    }
+}
