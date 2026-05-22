@@ -1,148 +1,82 @@
 # Cerebro
 
-A distributed **terminal-session manager** in your browser — Arc-Browser-style sidebar for tabs that happen to be live PTYs running across multiple machines. Sessions are spawned from a plugin manifest (claude, bash, htop, anything you add), grouped into folders, drag-dropped between favorites and default sections, and survive across master restarts.
+**Run terminals on multiple machines from one browser tab.**
 
-```
-              ┌──────────────────────┐
-              │  cerebro-server      │
- browser  ──▶ │  (master)            │ ◀── cerebro-node (eva56)
-              │  + Redis             │ ◀── cerebro-node (eva57)
-              │  + orchestrator      │ ◀── cerebro-node (...)
-              └──────────────────────┘
-```
+Cerebro is a browser app that lets you open, organize, and revisit terminal sessions — like browser tabs, but each tab is a live shell, a Claude Code session, an `htop`, or anything else you wire up. The tabs live on whichever machines you point at it (your laptop, a couple of servers, a GPU box), but you see them all in one Arc-style sidebar with folders, favorites, and drag-to-organize.
 
-## Install
+![architecture](https://img.shields.io/badge/python-3.11+-blue) ![docker](https://img.shields.io/badge/docker-ready-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
-Two roles: **master** (one) and **node** (one per host you want to spawn sessions on).
+---
 
-### Master
+## What you get
 
-**Option A — Docker (bundles Redis + claude CLI + orchestrator):**
+- **One sidebar, many machines.** Add a server, get its shells in the same list as everything else.
+- **Tabs that don't die.** Sessions outlive disconnects, master restarts, and reboots — Claude conversations resume, terminals keep their scrollback.
+- **Folders and favorites.** Drag tabs around like in Arc Browser: pin to top, group into folders, switch between "all" and "by machine" views.
+- **Plugins, not hardcoded apps.** Want a tab that starts `claude`? `bash`? `htop`? `nvtop`? Drop a small JSON file. No code.
+- **Funny names by default.** New tabs come pre-named `crimson-lemur`, `frosty-pickle`, etc. (wandb-style). Double-click to rename.
+
+---
+
+## Quickstart
+
+You need:
+- One machine to be the **master** (the brain — runs the web UI and Redis).
+- One or more machines to be **nodes** (where shells actually run). Master can be a node too.
+- Docker (recommended) or Python 3.11+ on the master.
+
+### 1. Start the master (Docker)
+
 ```bash
-git clone https://github.com/faad3/cerebro.git && cd cerebro
-cp .env.example .env       # edit CEREBRO_TOKEN
+git clone https://github.com/faad3/cerebro.git
+cd cerebro
+cp .env.example .env
+# open .env, set CEREBRO_TOKEN to any secret string (it's your password)
 docker compose up -d
 ```
 
-**Option B — pip (bring your own Redis + plugin binaries):**
-```bash
-# Prereqs: python >=3.11, redis-server, and any plugin commands you want (claude, htop, …)
-pip install ./server/
-cerebro-server start
-```
+The web UI is now at `http://localhost:8000`. Paste the token to log in.
 
-### Node
+### 2. Add a node
+
+On each machine you want to spawn shells on (including the master if you want):
 
 ```bash
-pip install ./client/
-cerebro start --master http://master-host:8000 --token <CEREBRO_TOKEN>
-cerebro tui     # optional interactive TUI (Ctrl+] to switch between sessions)
+pip install --user git+https://github.com/faad3/cerebro.git#subdirectory=client
+cerebro start --master http://<master-host>:8000 --token <your-token>
 ```
 
-Node identity is persisted in `~/.cerebro/node_id`, so a restart reattaches all live PTYs to the same logical node.
+Refresh the UI — the new machine shows up under "nodes".
 
-## UI
+### 3. Open your first session
 
-Open `http://master-host:8000` and paste `CEREBRO_TOKEN`.
+Click the green **+** at the bottom-right → pick a plugin (Claude / Bash / htop) → click **create**. A tab appears in the sidebar with a funny name. Click it. You're in a live terminal.
 
-Three top-level routes:
+---
 
-- **nodes** — hosts running the daemon, live status + rename.
-- **sessions** — Arc-style sidebar with two namespaces (favorites on top, default below). Folders inside each. Drag-drop to favorite, unfavorite, group, ungroup. `+` opens the plugin picker.
-- **conductor** — orchestrator Claude living in the master container; it can manage other sessions via `cerebro-ctl`.
+## Tips
 
-### Session sidebar — interactions
+- **Drag a tab onto another tab** → creates a folder with both inside.
+- **Drag a tab into the top section** → pins it (it's now a favorite). Drag back down to unpin.
+- **Double-click a tab name** → rename. Same for folders.
+- **The star button** does the same as dragging to favorites — pick whichever feels natural.
+- **`all` vs `by node`** (top of sidebar) — toggle to group your tabs by machine.
+- **Click a Claude tab while it's working** elsewhere — your browser pings you when it goes idle.
 
-- `+` (bottom right) → plugin picker grid → options form (auto-built from manifest).
-- Drag session A onto session B → creates a folder in B's section, A joins.
-- Drag session onto the favorites/default section background → moves it into that namespace.
-- Star button or section drag → favorite / unfavorite.
-- Double-click name → inline rename.
-- All-vs-by-node toggle at the top.
-- New sessions get a wandb-style funny name (`crimson-lemur`, `frosty-pickle`, …) until you rename them.
+---
 
-## Plugins
+## Roadmap
 
-Drop a JSON manifest into `server/cerebro_server/plugins/` (built-in) or `/data/plugins/` (user override). Schema:
+- One-command master migration: `cerebro-server export` / `cerebro-server import` to move the brain to a new server without losing any session.
+- More built-in plugins (nvtop, btop, tmux attach, ssh-to-anywhere).
+- Public deployment guide (TLS, multi-user).
 
-```json
-{
-  "id": "claude",
-  "label": "Claude Code",
-  "icon": "🧠",
-  "color": "#00ff88",
-  "command": "claude",
-  "args": [
-    "--session-id={session_id}",
-    {"if": "skip_perms", "then": "--dangerously-skip-permissions"}
-  ],
-  "options": [
-    {"key": "cwd", "type": "path", "default": "~"},
-    {"key": "skip_perms", "type": "bool", "default": true}
-  ],
-  "auto_fields": {"session_id": "uuid"},
-  "behaviors": ["resumable", "claude_jsonl_stats"]
-}
-```
+---
 
-Option types: `string`, `number`, `bool`, `path` (path browser). `auto_fields` generates values at create-time (currently `uuid`). Conditional args: `{"if": "<option_key>", "then": "<arg>"}`. The picker renders one tile per plugin; the options form is generated from `options[]`.
+## Going deeper
 
-Built-in: `claude.json`, `bash.json`, `htop.json`.
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** — architecture, data model, plugin manifest schema, master↔node WS protocol, contributing.
 
-## Concepts
+## License
 
-- **Node** — a host running the daemon. Persisted identity → restartable.
-- **Session** (a.k.a. `agent_id` in the data model) — one interactive CLI session, instantiated from a plugin, attached to exactly one node.
-- **Folder** — sidebar group. Lives in exactly one section (`default` or `favorite`); cannot mix.
-- **Terminal** — low-level PTY. Internal; users don't see them directly.
-- **Plugin** — JSON manifest defining how to spawn a session.
-
-## Features
-
-- Arc-style sidebar: two namespaces (favorites / default), folders, drag-drop, per-node toggle.
-- Plugin system — extend with a JSON manifest, no code changes.
-- Seamless session switching (xterm + WebSocket stay alive in memory across navigation).
-- Live activity dots: green pulse = generating, yellow = idle, gray = dead.
-- Browser notifications when a session goes idle (active → idle transition).
-- Claude session persistence via `--session-id` (sessions survive node and master restarts).
-- Auto-backup of session metadata to `/data` so Redis flush is non-fatal.
-- Funny default names + double-click inline rename.
-- Auto-cleanup of empty folders.
-
-## Layout
-
-```
-cerebro/
-├── server/                              # master
-│   ├── pyproject.toml                   # pip-installable as cerebro-server
-│   ├── Dockerfile                       # bundles redis + claude CLI
-│   ├── entrypoint.sh                    # UID mapping for mounted ~/.claude
-│   └── cerebro_server/
-│       ├── cli.py                       # `cerebro-server` entry point
-│       ├── main.py                      # FastAPI app + lifespan
-│       ├── routers/                     # /api/nodes /api/agents /api/folders /api/plugins /ws
-│       ├── registry.py                  # Redis wrapper
-│       ├── hub.py                       # live WS connections
-│       ├── persistence.py               # file backup
-│       ├── orchestrator_manager.py
-│       ├── funny_names.py               # wandb-style name generator
-│       ├── plugins_loader.py            # plugin manifest loader
-│       ├── plugins/                     # built-in manifests
-│       ├── static/                      # web UI (vanilla JS + xterm.js)
-│       └── orchestrator/                # orchestrator's CLAUDE.md
-├── client/                              # node + TUI
-│   └── cerebro_node/
-│       ├── cli.py                       # `cerebro` entry point
-│       ├── node.py                      # daemon
-│       ├── tui.py                       # terminal UI
-│       └── pty_session.py               # PTY child (PATH-augmented exec)
-├── docker-compose.yml
-└── .env.example
-```
-
-## Security notes
-
-- Single shared bearer token (`CEREBRO_TOKEN`) — all hosts and the browser use the same one.
-- No TLS — front it with nginx/Caddy for public deployments.
-- Claude auth uses the host user's `~/.claude/` directory (mounted into the Docker container with UID mapping).
-- Skip-permissions defaults are per-plugin (the claude manifest enables it by default; flip in the picker options).
+MIT — do whatever you want, just don't blame us when your shells go feral.
