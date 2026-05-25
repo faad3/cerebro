@@ -88,6 +88,41 @@ What you get out of the box once behind TLS:
 
 Threat-model caveat: there's still **one shared master token across all users** (passkeys are per-device but they all unlock the same "root" account). A leaked master token = RCE on every node. Don't share Cerebro with people you wouldn't share root with. See [DEVELOPMENT.md → Security](DEVELOPMENT.md#security) for the longer story.
 
+## Multiple users on one host
+
+Cerebro is designed for one person per instance. If several people want to run their **own** Cerebro on the same machine, that works fine — just give each user a unique port. Everything else is already isolated:
+
+Set two things per user in `.env`:
+
+```bash
+# alice@host:~/cerebro-alice$ cat .env
+COMPOSE_PROJECT_NAME=cerebro-alice
+CEREBRO_PORT=8001
+
+# bob@host:~/cerebro-bob$ cat .env
+COMPOSE_PROJECT_NAME=cerebro-bob
+CEREBRO_PORT=8002
+```
+
+(The simplest way: each user clones into a directory named differently, since Docker Compose uses the directory name as project name by default.)
+
+Then each user runs `docker compose up -d` in their own checkout. Everything else is automatically isolated:
+
+- **Docker volumes** are scoped by project name → Alice's `cerebro-alice_redis_data` ≠ Bob's `cerebro-bob_redis_data`.
+- **Tokens** are auto-generated per master, never shared.
+- **Audit log, passkeys, backups** all live in the per-instance Docker volume.
+- **Rate-limit counters** are in-memory per process, so Alice's bad logins don't affect Bob.
+- **Node daemons** read `~/.cerebro/node_id` from each user's own home directory; PTYs they fork run as that user.
+- **Bind defaults to `127.0.0.1`** — each instance is only reachable on localhost unless you set `CEREBRO_BIND=0.0.0.0` to expose on the LAN.
+
+What's still on the user's responsibility:
+
+- Each Cerebro instance must run under that user's OS account. If both `cerebro-node` daemons run as the same UID, the PTYs they fork share permissions (Alice's bash can read Bob's `/tmp`, see his `/proc/<pid>/environ`, etc.). That's standard UNIX behavior, not a Cerebro thing.
+- Being in the `docker` group is equivalent to root — anyone in it can `docker exec` into another user's container. If you need stronger isolation, use rootless Docker.
+- **WebAuthn passkeys** are scoped to the hostname (not host+port). If Alice runs on `host:8001` and Bob on `host:8002`, the browser sees them as the same WebAuthn realm. Each user's server only knows its own credentials, so cross-login simply fails — no security leak, but the UX wart is real. Use different hostnames (subdomains) per user if it bothers you.
+
+What's **not** supported and won't work: multiple humans sharing **one** Cerebro instance with separate accounts/permissions. There are no users inside Cerebro — anyone who can log in owns everything. If that's what you need, open an issue.
+
 ## Roadmap
 
 - One-command master migration: `cerebro-server export` / `cerebro-server import` to move the brain to a new server without losing any session.

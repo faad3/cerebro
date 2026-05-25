@@ -1,3 +1,8 @@
+# Project name (controls container + volume namespacing) defaults to the
+# directory name (`cerebro`). If multiple users share a host, each should set
+# COMPOSE_PROJECT_NAME in their .env (e.g. `cerebro-alice`) so volumes don't
+# collide. See README → "Multiple users on one host".
+
 services:
   redis:
     image: redis:7-alpine
@@ -10,18 +15,23 @@ services:
     build: ./server
     restart: unless-stopped
     ports:
-      - "${CEREBRO_PORT:-8000}:8000"
+      # Default binds to localhost only. Set CEREBRO_BIND=0.0.0.0 in .env to
+      # expose on the LAN/public (recommended only behind a TLS reverse proxy).
+      # If sharing a host with other users, give each a unique CEREBRO_PORT.
+      - "${CEREBRO_BIND:-127.0.0.1}:${CEREBRO_PORT:-8000}:8000"
     environment:
       # Optional — leave empty and the master auto-generates one into /data/token on first boot.
       # Retrieve any time with: docker compose exec cerebro-server cerebro-server token
       - CEREBRO_TOKEN=${CEREBRO_TOKEN:-}
       - REDIS_URL=redis://redis:6379
       - CEREBRO_LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CEREBRO_ALLOWED_ORIGINS=${CEREBRO_ALLOWED_ORIGINS:-}
+      - CEREBRO_RP_ID=${CEREBRO_RP_ID:-}
       - HOME=/root
     volumes:
       - ${HOME}/.claude:/home/cerebro/.claude
       - ${HOME}/.claude.json:/mnt/host-claude-config.json:ro
-      # Persistent storage for agent backups (survives Redis data loss).
+      # Persistent storage for agent backups, token, passkeys, audit log.
       - cerebro_data:/data
     depends_on:
       - redis
