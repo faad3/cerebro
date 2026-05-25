@@ -113,7 +113,7 @@ Then each user runs `docker compose up -d` in their own checkout. Everything els
 - **Audit log, passkeys, backups** all live in the per-instance Docker volume.
 - **Rate-limit counters** are in-memory per process, so Alice's bad logins don't affect Bob.
 - **Node daemons** read `~/.cerebro/node_id` from each user's own home directory; PTYs they fork run as that user.
-- **Bind defaults to `127.0.0.1`** — each instance is only reachable on localhost unless you set `CEREBRO_BIND=0.0.0.0` to expose on the LAN.
+- **Each instance gets its own port** — Docker refuses to start if a port is taken, so collisions are loud, not silent. Each user's chosen `CEREBRO_PORT` is independently exposed on `0.0.0.0` (set `CEREBRO_BIND=127.0.0.1` if you want any one of them localhost-only).
 
 What's still on the user's responsibility:
 

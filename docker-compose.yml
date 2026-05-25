@@ -15,10 +15,10 @@ services:
     build: ./server
     restart: unless-stopped
     ports:
-      # Default binds to localhost only. Set CEREBRO_BIND=0.0.0.0 in .env to
-      # expose on the LAN/public (recommended only behind a TLS reverse proxy).
+      # Defaults to 0.0.0.0 so nodes on other hosts can reach the master out of
+      # the box. Set CEREBRO_BIND=127.0.0.1 to restrict to localhost only.
       # If sharing a host with other users, give each a unique CEREBRO_PORT.
-      - "${CEREBRO_BIND:-127.0.0.1}:${CEREBRO_PORT:-8000}:8000"
+      - "${CEREBRO_BIND:-0.0.0.0}:${CEREBRO_PORT:-8000}:8000"
     environment:
       # Optional — leave empty and the master auto-generates one into /data/token on first boot.
       # Retrieve any time with: docker compose exec cerebro-server cerebro-server token
